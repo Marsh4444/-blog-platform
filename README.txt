@@ -101,7 +101,8 @@ The application demonstrates:
 ### 1. Clone the repository
 
 ```bash
-git clone https://github.com/yourusername/yourrepo.git
+git clone https://github.com/Marsh4444/-blog-platform.git
+
 cd yourrepo
 ```
 
@@ -216,3 +217,4 @@ If scaling further, improvements would include:
 ## 📜 License
 
 This project is built for educational and professional portfolio purposes.
+
