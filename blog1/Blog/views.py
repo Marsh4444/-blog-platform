@@ -1,0 +1,415 @@
+from multiprocessing import context
+from django.urls import reverse
+from django.shortcuts import render, get_object_or_404, redirect
+from bloggss.models import Blog, Category  # your Blog and Category models
+from django.db.models import Q
+from django.contrib.auth.decorators import login_required
+from users.decorators import group_required
+from .form import BlogForm, CategoryForm
+from django.utils.text import slugify
+from django.utils.timezone import now
+from datetime import timedelta
+from django.db.models import Count
+from django.contrib.auth.models import User, Group
+from .forms import UserForm
+from django.contrib.auth.hashers import make_password
+from django.db.models.functions import TruncMonth
+
+
+
+def home(request):
+    """ Logic for the home page"""
+
+    featured_posts = Blog.objects.filter(is_featured=True, status='published').order_by('-updated_at')
+    blogs = Blog.objects.filter(status='published', is_featured=False).order_by('-updated_at')
+    context = {
+        'featured_posts': featured_posts,
+        'blogs': blogs,
+    }
+
+    return render(request, 'home.html', context)
+
+
+def search(request):
+    keyword = request.GET.get('keyword')
+    blogs = Blog.objects.filter(Q(title__icontains=keyword) | Q(short_desc__icontains=keyword) | Q(content__icontains=keyword)).order_by('-updated_at')
+
+    context = {
+        'keyword': keyword,
+        'blogs' : blogs,
+    }
+    return render(request, 'search.html', context)
+
+#post CRUD views will be in users/views.py since they are only for authenticated users/im using here cos the users view is clustered 
+
+
+
+
+
+
+@login_required
+def posts_list(request):
+    if request.user.groups.filter(name="Manager").exists():
+        posts = Blog.objects.all()
+    else:
+        posts = Blog.objects.filter(author=request.user)
+
+    context = {
+        'posts': posts
+    }
+
+    return render(request, 'posts/posts_list.html', context)
+
+
+
+
+
+@group_required("Manager", "Editor", "Author")
+def posts_list(request):
+
+    # If Author → show only their posts
+    if request.user.groups.filter(name="Author").exists():
+        blogs = Blog.objects.filter(author=request.user)
+
+    # If Manager or Editor → show all posts
+    else:
+        blogs = Blog.objects.all()
+
+    context = {
+        "blogs": blogs
+    }
+
+    return render(request, "users/dashboard/posts_list.html", context)
+
+
+
+@login_required
+@group_required("Manager", "Editor", "Author")  # adjust role if needed
+def post_create(request):
+    if request.method == "POST":
+        form = BlogForm(request.POST, request.FILES)
+        
+        if form.is_valid():
+            blog = form.save(commit=False)
+
+            # Assign author automatically
+            blog.author = request.user
+
+            blog.save()  # Save first to generate ID
+
+            # Generate unique slug using ID
+            blog.slug = slugify(blog.title) + "-" + str(blog.id)
+            blog.save()
+
+            return redirect("posts_list")
+        else:
+            print("Form is not valid:")
+            print(form.errors)
+    else:
+        form = BlogForm()
+
+    context = {
+        "form": form
+    }
+
+    return render(request, "users/dashboard/posts_create.html", context)
+
+
+@login_required
+@group_required("Manager", "Editor", "Author")  # adjust if Editors can edit too
+def post_update(request, pk):
+    blog = get_object_or_404(Blog, pk=pk)
+
+    if request.method == "POST":
+        form = BlogForm(request.POST, request.FILES, instance=blog)
+
+        if form.is_valid():
+            updated_blog = form.save(commit=False)
+
+            # Optional: regenerate slug if title changed
+            if "title" in form.changed_data:
+                updated_blog.slug = slugify(updated_blog.title) + "-" + str(updated_blog.id)
+
+            updated_blog.save()
+
+            return redirect("posts_list")
+    else:
+        form = BlogForm(instance=blog)
+
+    context = {
+        "form": form,
+        "blog": blog
+    }
+
+    return render(request, "users/dashboard/posts_update.html", context)
+
+
+def post_delete(request, pk):
+    post = get_object_or_404(Blog, pk=pk)
+    post.delete()
+    return redirect('posts_list')
+
+
+@login_required
+@group_required("Manager", "Editor")
+def system_reports(request):
+
+    # ----- Summary Stats -----
+    total_blogs = Blog.objects.count()
+    recent_blogs = Blog.objects.order_by("-created_at")[:5]
+    roles = Group.objects.annotate(user_count=Count("user"))
+
+    active_users = User.objects.filter(is_active=True).count()
+    inactive_users = User.objects.filter(is_active=False).count()
+
+    one_month_ago = now() - timedelta(days=30)
+    blogs_this_month = Blog.objects.filter(created_at__gte=one_month_ago).count()
+
+    total_users = User.objects.count()
+    total_managers = User.objects.filter(groups__name="Manager").count()
+    total_editors = User.objects.filter(groups__name="Editor").count()
+    total_authors = User.objects.filter(groups__name="Author").count()
+
+    most_active_author = (
+        Blog.objects.values("author__username")
+        .annotate(post_count=Count("id"))
+        .order_by("-post_count")
+        .first()
+    )
+
+    # ----- Chart Data -----
+
+    # 1️⃣ Blogs per Category
+    blogs_per_category = (
+        Blog.objects.values("category__category_name")
+        .annotate(count=Count("id"))
+        .order_by("-count")
+    )
+    category_labels = [b["category__category_name"] for b in blogs_per_category]
+    category_counts = [b["count"] for b in blogs_per_category]
+
+    # 2️⃣ Role Distribution
+    role_counts = {
+        "Managers": total_managers,
+        "Editors": total_editors,
+        "Authors": total_authors,
+    }
+    role_labels = list(role_counts.keys())
+    role_data = list(role_counts.values())
+
+    # 3️⃣ Monthly Blog Growth
+    monthly_labels = []
+    monthly_data = []
+    for i in range(5, -1, -1):
+        month = now() - timedelta(days=i * 30)
+        monthly_labels.append(month.strftime("%b %Y"))
+        count = Blog.objects.filter(
+            created_at__year=month.year,
+            created_at__month=month.month
+        ).count()
+        monthly_data.append(count)
+
+    # 4️⃣ Monthly User Growth (NEW)
+    user_growth = (
+        User.objects
+        .annotate(month=TruncMonth("date_joined"))
+        .values("month")
+        .annotate(count=Count("id"))
+        .order_by("month")
+    )
+
+    user_month_labels = [
+        entry["month"].strftime("%b %Y") for entry in user_growth
+    ]
+    user_month_data = [
+        entry["count"] for entry in user_growth
+    ]
+
+    context = {
+        "total_blogs": total_blogs,
+        "blogs_this_month": blogs_this_month,
+        "recent_blogs": recent_blogs,
+        "total_users": total_users,
+        "total_managers": total_managers,
+        "total_editors": total_editors,
+        "total_authors": total_authors,
+        "most_active_author": most_active_author,
+        "category_labels": category_labels,
+        "category_counts": category_counts,
+        "role_labels": role_labels,
+        "role_data": role_data,
+        "monthly_labels": monthly_labels,
+        "monthly_data": monthly_data,
+        "active_users": active_users,
+        "inactive_users": inactive_users,
+        "user_month_labels": user_month_labels,
+        "user_month_data": user_month_data,
+    }
+
+    return render(request, "users/dashboard/system_reports.html", context)
+
+# The category CRUD views (list, create, update, delete) would be implemented similarly to the post CRUD views, but using the Category model and CategoryForm.
+@login_required
+@group_required("Manager", "Editor")
+def category_list(request):
+    categories = Category.objects.all().order_by("category_name")
+    
+    if request.user.groups.filter(name="Manager").exists():
+        dashboard_url = reverse("manager_dashboard")
+
+    elif request.user.groups.filter(name="Editor").exists():
+        dashboard_url = reverse("editor_dashboard")
+
+
+    context = {"categories": categories, "dashboard_url": dashboard_url }
+    
+    return render(request, "users/dashboard/category_list.html", context)
+
+
+@login_required
+@group_required("Manager", "Editor")
+def category_create(request):
+    if request.method == "POST":
+        form = CategoryForm(request.POST)
+        if form.is_valid():
+            form.save()
+            return redirect("category_list")
+    else:
+        form = CategoryForm()
+
+    context = {
+        "form": form,
+        "title": "Add Category",
+        "is_edit": False
+    }
+
+    return render(request, "users/dashboard/category_form.html", context)
+
+
+@login_required
+@group_required("Manager", "Editor")
+def category_update(request, pk):
+    category = get_object_or_404(Category, pk=pk)
+
+    if request.method == "POST":
+        form = CategoryForm(request.POST, instance=category)
+        if form.is_valid():
+            form.save()
+            return redirect("category_list")
+    else:
+        form = CategoryForm(instance=category)
+
+    context = {
+        "form": form,
+        "title": "Edit Category",
+        "is_edit": True
+    }
+
+    return render(request, "users/dashboard/category_form.html", context)
+
+
+@login_required
+@group_required("Manager")
+def category_delete(request, pk):
+    category = get_object_or_404(Category, pk=pk)
+
+    if request.method == "POST":
+        category.delete()
+        return redirect("category_list")
+
+    return render(request, "users/dashboard/category_confirm_delete.html", {
+        "category": category
+    })
+
+
+#The users Crud view 
+# ----- List Users -----
+@login_required
+@group_required("Manager")
+def users_list(request):
+
+    userss = User.objects.all().order_by('-date_joined')
+    
+    if request.user.groups.filter(name="Manager").exists():
+        dashboard_url = reverse("manager_dashboard")
+
+    elif request.user.groups.filter(name="Editor").exists():
+        dashboard_url = reverse("editor_dashboard")
+    
+
+    context = {
+        
+        "userss": userss,
+        "dashboard_url": dashboard_url,
+        
+    }
+    
+    
+    return render(request, "users/Dashboard/users_list.html", context)
+
+
+# ----- Create User -----
+@login_required
+@group_required("Manager")
+def user_create(request):
+    if request.method == "POST":
+        form = UserForm(request.POST)
+        if form.is_valid():
+            user = form.save(commit=False)
+            if form.cleaned_data["password"]:
+                user.password = make_password(form.cleaned_data["password"])
+            user.save()
+            group = form.cleaned_data["group"]
+            user.groups.add(group)
+            return redirect("users_list")
+    else:
+        form = UserForm()
+    
+    context = {"form": form, "is_edit": False}
+
+    return render(request, "users/dashboard/user_form.html", context)
+
+
+# ----- Edit User -----
+@login_required
+@group_required("Manager")
+def user_edit(request, pk):
+    user = get_object_or_404(User, pk=pk)
+    if request.method == "POST":
+        form = UserForm(request.POST, instance=user)
+        if form.is_valid():
+            user = form.save(commit=False)
+            if form.cleaned_data["password"]:
+                user.password = make_password(form.cleaned_data["password"])
+            user.save()
+            # Clear old groups and assign new
+            user.groups.clear()
+            user.groups.add(form.cleaned_data["group"])
+            return redirect("users_list")
+    else:
+        initial = {"group": user.groups.first()}
+        form = UserForm(instance=user, initial=initial)
+    
+    context = {"form": form, "is_edit": True, "user_obj": user}
+    return render(request, "users/dashboard/user_form.html", context)
+
+
+# ----- Delete User -----
+@login_required
+@group_required("Manager")
+def user_delete(request, pk):
+    user = get_object_or_404(User, pk=pk)
+    if request.method == "POST":
+        user.delete()
+        return redirect("users_list")
+    context = {"user_obj": user}
+    return render(request, "users/dashboard/user_confirm_delete.html", context)
+
+# ----- Toggle Active/Deactivate User -----
+@login_required
+@group_required("Manager")
+def toggle_user_active(request, pk):
+    user = get_object_or_404(User, pk=pk)
+    user.is_active = not user.is_active
+    user.save()
+    return redirect("users_list")

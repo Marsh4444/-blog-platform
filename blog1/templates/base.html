@@ -1,0 +1,145 @@
+{% load static %}
+{% load user_tags %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}DevThoughts{% endblock %}</title>
+
+    <!-- Bootstrap -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/css/bootstrap.min.css" rel="stylesheet">
+
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600;700&family=Inter:wght@300;400;500&display=swap" rel="stylesheet">
+
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="{% static 'css/blog.css' %}">
+
+    <!-- Fonts awesome-->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css">
+
+</head>
+
+<body>
+<div class="main-container">
+
+    <!-- Top Bar -->
+    <div class="top-bar py-2">
+        <div class="container">
+            <div class="d-flex flex-column flex-md-row justify-content-between text-center text-md-start">
+                <span>📅 {% now "l, F d, Y" %}</span>
+                <span>☁️ Your daily dose of code & creativity</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Header -->
+   <header class="header py-3">
+    <div class="container">
+
+        <div class="d-flex justify-content-between align-items-center">
+
+            <!-- Logo (Far Left) -->
+            <a class="logo fw-bold fs-4 text-decoration-none" href="/">
+                DevThoughts
+            </a>
+
+            <!-- Right Side (Search + Auth Buttons) -->
+            <div class="d-flex align-items-center gap-3">
+
+                <!-- Search -->
+                <form method="GET" action="{% url 'search' %}" class="search-wrapper d-flex align-items-center">
+                    <input 
+                        type="search" 
+                        name="keyword"
+                        value="{{ keyword }}"
+                        class="search-input form-control"
+                        placeholder="Search posts..."
+                        required
+                    >
+                    <button type="submit" type="button" class="btn btn-outline-secondary"   id="button-search">
+                        Go!
+                    </button>
+                </form>
+
+                <!-- Auth Buttons -->
+                {% if user.is_authenticated %}
+                    {% if user|in_group:"Manager" %}
+                      <a class="btn btn-login" href="{% url 'manager_dashboard' %}">Dashboard</a>
+                    {% elif user|in_group:"Editor" %}
+                      <a class="btn btn-login" href="{% url 'editor_dashboard' %}">Dashboard</a>
+                    {% elif user|in_group:"Author" %}
+                      <a class="btn btn-login" href="{% url 'author_dashboard' %}">Dashboard</a>
+                {% endif %}
+                {% if request.user.groups.first.name == "User" %}
+                    {% if pending_request %}
+                    <button class="btn btn-secondary" disabled>
+                        Request Pending
+                    </button>
+                    {% else %}
+                    <form action="{% url 'request_author_role' %}" method="post">
+                        {% csrf_token %}
+                        <button type="submit" class="btn btn-primary">
+                            Request Author Access
+                        </button>
+                    </form>
+                    {% endif %}
+                {% endif %}
+                    <a class="btn btn-register" href="{% url 'logout' %}">Logout</a>
+                {% else %}
+                    <a class="btn btn-login" href="{% url 'login' %}">Login</a>
+                    <a class="btn btn-register" href="{% url 'register' %}">Sign Up</a>
+                {% endif %}
+
+            </div>
+
+        </div>
+
+    </div>
+   </header>
+    <!-- Categories Navigation -->
+    <nav class="categories-nav py-2">
+        <div class="container">
+            <div class="d-flex flex-wrap justify-content-center justify-content-md-start gap-2">
+                {% for category in categories %}
+                    <a class="category-tag" href="{% url 'category_posts' category.pk %}">
+                        {{ category }}
+                    </a>
+                {% endfor %}
+            </div>
+        </div>
+    </nav>
+
+    {% if messages %}
+        <div class="container mt-3">
+            {% for message in messages %}
+                <div class="alert alert-{{ message.tags }} alert-dismissible fade show" role="alert">
+                    {{ message }}
+                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                </div>
+            {% endfor %}
+        </div>
+    {% endif %}
+
+    <!-- Main Content -->
+    <div class="container mt-4">
+        {% block content %}
+        {% endblock %}
+    </div>
+
+</div>
+
+<!-- Footer -->
+<footer class="py-4 text-center">
+    <p class="mb-0">
+        Crafted with 💜 by <a href="#">Marsh</a> | Powered by Django
+    </p>
+</footer>
+
+    <!-- Bootstrap JS (REQUIRED for alert dismiss to work) -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+
+
+</body>
+</html>

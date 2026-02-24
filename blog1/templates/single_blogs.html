@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% block title %}Home - DevThoughts{% endblock %}
+
+{% block content %}
+{% load crispy_forms_tags %}
+<div class="container my-5">
+  <div class="row">
+
+    <!-- LEFT SIDE (Main Content) -->
+    <div class="col-12 col-lg-8">
+
+      <div class="card border-0 shadow-sm p-4 p-md-5">
+
+        <!-- Category -->
+        <span class="badge bg-dark mb-3" style="width: 100px;">
+          {{ single_post.category }}
+        </span>
+
+        <!-- Title -->
+        <h1 class="fw-bold mb-3">
+          {{ single_post.title }}
+        </h1>
+
+        <!-- Meta -->
+        <p class="text-muted small mb-4">
+          {{ single_post.created_at|timesince }} •
+          by <strong>{{ single_post.author }}</strong>
+        </p>
+
+        <!-- Short Description -->
+        <p class="lead text-secondary mb-4">
+          {{ single_post.short_desc }}
+        </p>
+
+        <!-- Featured Image -->
+        {% if single_post.blog_image %}
+          <img 
+            src="{{ single_post.blog_image.url }}"
+            class="img-fluid rounded-3 shadow-sm mb-4"
+            alt="{{ single_post.title }}"
+          >
+        {% endif %}
+
+        <!-- Body -->
+        <div class="post-content fs-5 lh-lg">
+          {{ single_post.content|linebreaks }}
+        </div>
+
+      </div>
+
+      <hr>
+      <h4>Comments ({{ comments.count }})</h4>
+
+      {% if user.is_authenticated %}
+          <form method="POST" class="mb-4" style="max-width: 500px;">
+              {% csrf_token %}
+              {{ form|crispy }}
+              <button type="submit" class="btn btn-primary btn-sm mt-2">
+                  Add Comment
+              </button>
+          </form>
+      {% else %}
+          <p><a href="{% url 'login' %}">Login</a> to post a comment.</p>
+      {% endif %}
+
+      <div class="mt-3">
+          {% for comment in comments %}
+              <div class="card p-2 mb-2" style="width: 500px;">
+                  <strong>{{ comment.user.username }}</strong>
+                  <small class="text-muted"> • {{ comment.created_at }}</small>
+                  <p class="mt-1">{{ comment.content }}</p>
+              </div>
+          {% empty %}
+              <p>No comments yet. Be the first to comment.</p>
+          {% endfor %}
+      </div>
+
+    </div> <!-- ✅ Properly closed main column -->
+
+
+
+  {% include "partials/aside.html" %}
+
+
+  </div>
+</div>
+
+{% endblock %}
